@@ -1,0 +1,79 @@
+name: CI — Security & Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  security-and-tests:
+    name: SAST + SCA + Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: ib_lr1_db
+          POSTGRES_USER: ib_lr1_user
+          POSTGRES_PASSWORD: ib_lr1_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ib_lr1_user -d ib_lr1_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      DATABASE_URL: postgresql+psycopg2://ib_lr1_user:ib_lr1_pass@localhost:5432/ib_lr1_db
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # SAST
+      - name: SAST — Bandit
+        run: |
+          mkdir -p reports
+          uv run bandit -r src -ll -f txt -o reports/bandit.txt || true
+          uv run bandit -r src -ll -f json -o reports/bandit.json || true
+          cat reports/bandit.txt
+          uv run bandit -r src -ll
+
+      # SCA
+      - name: SCA — pip-audit
+        run: |
+          mkdir -p reports
+          uv run pip-audit -f json -o reports/pip-audit.json || true
+          uv run pip-audit -f columns | tee reports/pip-audit.txt
+          uv run pip-audit
+
+      # TESTS
+      - name: Run tests (pytest)
+        run: uv run pytest -v
+
+      # REPORTS
+      - name: Upload SAST/SCA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: reports/
+          retention-days: 30
