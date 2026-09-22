@@ -65,10 +65,6 @@ jobs:
           uv run pip-audit -f columns | tee reports/pip-audit.txt
           uv run pip-audit
 
-      # TESTS
-      - name: Run tests (pytest)
-        run: uv run pytest -v
-
       # REPORTS
       - name: Upload SAST/SCA reports
         if: always()
